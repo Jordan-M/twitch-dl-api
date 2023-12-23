@@ -16,8 +16,7 @@ from twitchdl import twitch, utils
 from twitchdl.download import download_file
 from twitchdl.exceptions import ConsoleError
 from twitchdl.http import download_all
-from twitchdl.output import print_out
-
+from twitchdl.logging import logger
 
 def _parse_playlists(playlists_m3u8):
     playlists = m3u8.loads(playlists_m3u8)
@@ -48,12 +47,12 @@ def _get_playlist_by_name(playlists, quality):
 
 
 def _select_playlist_interactive(playlists):
-    print_out("\nAvailable qualities:")
+    logger.info("\nAvailable qualities:")
     for n, (name, resolution, uri) in enumerate(playlists):
         if resolution:
-            print_out("{}) <b>{}</b> <dim>({})</dim>".format(n + 1, name, resolution))
+            logger.info("{}) {} ({})".format(n + 1, name, resolution))
         else:
-            print_out("{}) <b>{}</b>".format(n + 1, name))
+            logger.info("{}) {}".format(n + 1, name))
 
     no = utils.read_int("Choose quality", min=1, max=len(playlists) + 1, default=1)
     _, _, uri = playlists[no - 1]
@@ -76,13 +75,17 @@ def _join_vods(playlist_path, target, overwrite, video):
     if overwrite:
         command.append("-y")
 
-    print_out("<dim>{}</dim>".format(" ".join(command)))
+    logger.info("{}".format(" ".join(command)))
     result = subprocess.run(command)
     if result.returncode != 0:
         raise ConsoleError("Joining files failed")
 
 
-def _video_target_filename(video, args):
+def _video_target_filename(
+        video,
+        format: str, 
+        output: str
+    ) -> str:
     date, time = video['publishedAt'].split("T")
     game = video["game"]["name"] if video["game"] else "Unknown"
 
@@ -91,7 +94,7 @@ def _video_target_filename(video, args):
         "channel_login": video["creator"]["login"],
         "date": date,
         "datetime": video["publishedAt"],
-        "format": args.format,
+        "format": format,
         "game": game,
         "game_slug": utils.slugify(game),
         "id": video["id"],
@@ -101,13 +104,12 @@ def _video_target_filename(video, args):
     }
 
     try:
-        return args.output.format(**subs)
+        return output.format(**subs)
     except KeyError as e:
         supported = ", ".join(subs.keys())
         raise ConsoleError("Invalid key {} used in --output. Supported keys are: {}".format(e, supported))
 
-
-def _clip_target_filename(clip, args):
+def _clip_target_filename(clip, output: str) -> str:
     date, time = clip["createdAt"].split("T")
     game = clip["game"]["name"] if clip["game"] else "Unknown"
 
@@ -131,7 +133,7 @@ def _clip_target_filename(clip, args):
     }
 
     try:
-        return args.output.format(**subs)
+        return output.format(**subs)
     except KeyError as e:
         supported = ", ".join(subs.keys())
         raise ConsoleError("Invalid key {} used in --output. Supported keys are: {}".format(e, supported))
@@ -165,19 +167,77 @@ def _crete_temp_dir(base_uri: str) -> str:
     return str(temp_dir)
 
 
-def download(args):
-    for video_id in args.videos:
-        download_one(video_id, args)
+def download(
+        videos: list[str],
+        max_workers: Optional[int] = 5,
+        start: Optional[int] = None,
+        end: Optional[int] = None,
+        format: Optional[str] = "mp4",
+        keep: Optional[bool] = False,
+        quality: Optional[str] = "source",
+        auth_token: Optional[str] = None,
+        no_join: Optional[bool] = False,
+        overwrite: Optional[bool] = False,
+        output: Optional[str] = "{id}.mp4",
+        chapter: Optional[int] = None,
+        rate_limit: Optional[int] = None
+    ) -> None:
+    for video_id in videos:
+        download_one(
+            video=video_id,
+            max_workers=max_workers,
+            start=start,
+            end=end,
+            format=format,
+            keep=keep,
+            quality=quality,
+            auth_token=auth_token,
+            no_join=no_join,
+            overwrite=overwrite,
+            output=output,
+            chapter=chapter,
+            rate_limit=rate_limit
+        )
 
-
-def download_one(video: str, args):
+def download_one(
+        video: str,
+        max_workers: Optional[int] = 5,
+        start: Optional[int] = None,
+        end: Optional[int] = None,
+        format: Optional[str] = "mp4",
+        keep: Optional[bool] = False,
+        quality: Optional[str] = "source",
+        auth_token: Optional[str] = None,
+        no_join: Optional[bool] = False,
+        overwrite: Optional[bool] = False,
+        output: Optional[str] = "{id}.mp4",
+        chapter: Optional[int] = None,
+        rate_limit: Optional[int] = None
+    ) -> None:
     video_id = utils.parse_video_identifier(video)
     if video_id:
-        return _download_video(video_id, args)
+        return _download_video(
+            video_id=video,
+            max_workers=max_workers,
+            start=start,
+            end=end,
+            format=format,
+            keep=keep,
+            quality=quality,
+            auth_token=auth_token,
+            no_join=no_join,
+            overwrite=overwrite,
+            output=output,
+            chapter=chapter,
+            rate_limit=rate_limit)
 
     clip_slug = utils.parse_clip_identifier(video)
     if clip_slug:
-        return _download_clip(clip_slug, args)
+        return _download_clip(
+            clip_slug=clip_slug,
+            quality=quality,
+            overwrite=overwrite,
+            output=output)
 
     raise ConsoleError("Invalid input: {}".format(video))
 
@@ -200,10 +260,10 @@ def _get_clip_url(clip, quality):
         raise ConsoleError(msg)
 
     # Ask user to select quality
-    print_out("\nAvailable qualities:")
+    logger.info("\nAvailable qualities:")
     for n, q in enumerate(qualities):
-        print_out("{}) {} [{} fps]".format(n + 1, q["quality"], q["frameRate"]))
-    print_out()
+        logger.info("{}) {} [{} fps]".format(n + 1, q["quality"], q["frameRate"]))
+    logger.info()
 
     no = utils.read_int("Choose quality", min=1, max=len(qualities), default=1)
     selected_quality = qualities[no - 1]
@@ -211,7 +271,7 @@ def _get_clip_url(clip, quality):
 
 
 def get_clip_authenticated_url(slug, quality):
-    print_out("<dim>Fetching access token...</dim>")
+    logger.info("Fetching access token...")
     access_token = twitch.get_clip_access_token(slug)
 
     if not access_token:
@@ -227,74 +287,93 @@ def get_clip_authenticated_url(slug, quality):
     return "{}?{}".format(url, query)
 
 
-def _download_clip(slug: str, args) -> None:
-    print_out("<dim>Looking up clip...</dim>")
+def _download_clip(
+        slug: str,
+        quality: Optional[str] = "source",
+        overwrite: Optional[bool] = False,
+        output: Optional[str] = "{id}.mp4"
+    ) -> None:
+    logger.info("Looking up clip...")
     clip = twitch.get_clip(slug)
     game = clip["game"]["name"] if clip["game"] else "Unknown"
 
     if not clip:
         raise ConsoleError("Clip '{}' not found".format(slug))
 
-    print_out("Found: <green>{}</green> by <yellow>{}</yellow>, playing <blue>{}</blue> ({})".format(
+    logger.info("Found: {} by {}, playing {} ({})".format(
         clip["title"],
         clip["broadcaster"]["displayName"],
         game,
         utils.format_duration(clip["durationSeconds"])
     ))
 
-    target = _clip_target_filename(clip, args)
-    print_out("Target: <blue>{}</blue>".format(target))
+    target = _clip_target_filename(clip, output)
+    logger.info("Target: {}".format(target))
 
-    if not args.overwrite and path.exists(target):
+    if not overwrite and path.exists(target):
         response = input("File exists. Overwrite? [Y/n]: ")
         if response.lower().strip() not in ["", "y"]:
             raise ConsoleError("Aborted")
-        args.overwrite = True
+        overwrite = True
 
-    url = get_clip_authenticated_url(slug, args.quality)
-    print_out("<dim>Selected URL: {}</dim>".format(url))
+    url = get_clip_authenticated_url(slug, quality)
+    logger.info("Selected URL: {}".format(url))
 
-    print_out("<dim>Downloading clip...</dim>")
+    logger.info("Downloading clip...")
     download_file(url, target)
 
-    print_out("Downloaded: <blue>{}</blue>".format(target))
+    logger.info("Downloaded: {}".format(target))
 
 
-def _download_video(video_id, args) -> None:
-    if args.start and args.end and args.end <= args.start:
+def _download_video(
+        video_id: str,
+        max_workers: Optional[int] = 5,
+        start: Optional[int] = None,
+        end: Optional[int] = None,
+        format: Optional[str] = "mp4",
+        keep: Optional[bool] = False,
+        quality: Optional[str] = "source",
+        auth_token: Optional[str] = None,
+        no_join: Optional[bool] = False,
+        overwrite: Optional[bool] = False,
+        output: Optional[str] = "{id}.mp4",
+        chapter: Optional[int] = None,
+        rate_limit: Optional[int] = None
+    ) -> None:
+    if start and end and end <= start:
         raise ConsoleError("End time must be greater than start time")
 
-    print_out("<dim>Looking up video...</dim>")
+    logger.info("Looking up video...")
     video = twitch.get_video(video_id)
 
     if not video:
         raise ConsoleError("Video {} not found".format(video_id))
 
-    print_out("Found: <blue>{}</blue> by <yellow>{}</yellow>".format(
+    logger.info("Found: {} by {}".format(
         video['title'], video['creator']['displayName']))
 
-    target = _video_target_filename(video, args)
-    print_out("Output: <blue>{}</blue>".format(target))
+    target = _video_target_filename(video, format, output)
+    logger.info("Output: {}".format(target))
 
-    if not args.overwrite and path.exists(target):
+    if not overwrite and path.exists(target):
         response = input("File exists. Overwrite? [Y/n]: ")
         if response.lower().strip() not in ["", "y"]:
             raise ConsoleError("Aborted")
-        args.overwrite = True
+        overwrite = True
 
     # Chapter select or manual offset
-    start, end = _determine_time_range(video_id, args)
+    start, end = _determine_time_range(video_id, start, end, chapter)
 
-    print_out("<dim>Fetching access token...</dim>")
-    access_token = twitch.get_access_token(video_id, auth_token=args.auth_token)
+    logger.info("Fetching access token...")
+    access_token = twitch.get_access_token(video_id, auth_token=auth_token)
 
-    print_out("<dim>Fetching playlists...</dim>")
+    logger.info("Fetching playlists...")
     playlists_m3u8 = twitch.get_playlists(video_id, access_token)
     playlists = list(_parse_playlists(playlists_m3u8))
-    playlist_uri = (_get_playlist_by_name(playlists, args.quality) if args.quality
+    playlist_uri = (_get_playlist_by_name(playlists, quality) if quality
             else _select_playlist_interactive(playlists))
 
-    print_out("<dim>Fetching playlist...</dim>")
+    logger.info("Fetching playlist...")
     response = httpx.get(playlist_uri)
     response.raise_for_status()
     playlist = m3u8.loads(response.text)
@@ -309,11 +388,11 @@ def _download_video(video_id, args) -> None:
     with open(path.join(target_dir, "playlist.m3u8"), "w") as f:
         f.write(response.text)
 
-    print_out("\nDownloading {} VODs using {} workers to {}".format(
-        len(vod_paths), args.max_workers, target_dir))
+    logger.info("\nDownloading {} VODs using {} workers to {}".format(
+        len(vod_paths), max_workers, target_dir))
     sources = [base_uri + path for path in vod_paths]
     targets = [os.path.join(target_dir, "{:05d}.ts".format(k)) for k, _ in enumerate(vod_paths)]
-    asyncio.run(download_all(sources, targets, args.max_workers, rate_limit=args.rate_limit))
+    asyncio.run(download_all(sources, targets, max_workers, rate_limit=rate_limit))
 
     # Make a modified playlist which references downloaded VODs
     # Keep only the downloaded segments and skip the rest
@@ -329,43 +408,48 @@ def _download_video(video_id, args) -> None:
     playlist_path = path.join(target_dir, "playlist_downloaded.m3u8")
     playlist.dump(playlist_path)
 
-    if args.no_join:
-        print_out("\n\n<dim>Skipping joining files...</dim>")
-        print_out("VODs downloaded to:\n<blue>{}</blue>".format(target_dir))
+    if no_join:
+        logger.info("\n\nSkipping joining files...")
+        logger.info("VODs downloaded to:\n{}".format(target_dir))
         return
 
-    print_out("\n\nJoining files...")
-    _join_vods(playlist_path, target, args.overwrite, video)
+    logger.info("\n\nJoining files...")
+    _join_vods(playlist_path, target, overwrite, video)
 
-    if args.keep:
-        print_out("\n<dim>Temporary files not deleted: {}</dim>".format(target_dir))
+    if keep:
+        logger.info("\nTemporary files not deleted: {}".format(target_dir))
     else:
-        print_out("\n<dim>Deleting temporary files...</dim>")
+        logger.info("\nDeleting temporary files...")
         shutil.rmtree(target_dir)
 
-    print_out("\nDownloaded: <green>{}</green>".format(target))
+    logger.info("\nDownloaded: {}".format(target))
 
 
-def _determine_time_range(video_id, args):
-    if args.start or args.end:
-        return args.start, args.end
+def _determine_time_range(
+        video_id: str, 
+        start: int,
+        end: int,
+        chapter: int
+    ):
+    if start or end:
+        return start, end
 
-    if args.chapter is not None:
-        print_out("<dim>Fetching chapters...</dim>")
+    if chapter is not None:
+        logger.info("Fetching chapters...")
         chapters = twitch.get_video_chapters(video_id)
 
         if not chapters:
             raise ConsoleError("This video has no chapters")
 
-        if args.chapter == 0:
+        if chapter == 0:
             chapter = _choose_chapter_interactive(chapters)
         else:
             try:
-                chapter = chapters[args.chapter - 1]
+                chapter = chapters[chapter - 1]
             except IndexError:
-                raise ConsoleError(f"Chapter {args.chapter} does not exist. This video has {len(chapters)} chapters.")
+                raise ConsoleError(f"Chapter {chapter} does not exist. This video has {len(chapters)} chapters.")
 
-        print_out(f'Chapter selected: <blue>{chapter["description"]}</blue>\n')
+        logger.info(f'Chapter selected: {chapter["description"]}\n')
         start = chapter["positionMilliseconds"] // 1000
         duration = chapter["durationMilliseconds"] // 1000
         return start, start + duration
@@ -374,10 +458,10 @@ def _determine_time_range(video_id, args):
 
 
 def _choose_chapter_interactive(chapters):
-    print_out("\nChapters:")
+    logger.info("\nChapters:")
     for index, chapter in enumerate(chapters):
         duration = utils.format_time(chapter["durationMilliseconds"] // 1000)
-        print_out(f'{index + 1}) <b>{chapter["description"]}</b> <dim>({duration})</dim>')
+        logger.info(f'{index + 1}) {chapter["description"]} ({duration})')
     index = utils.read_int("Select a chapter", 1, len(chapters))
     chapter = chapters[index - 1]
     return chapter

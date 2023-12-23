@@ -5,12 +5,12 @@ from setuptools import setup, find_packages
 long_description = """
 Quickly download videos from twitch.tv.
 
-Works simliarly to youtube-dl but downloads multiple VODs in parallel which
+Works similarly to youtube-dl but downloads multiple VODs in parallel which
 makes it faster.
 """
 
 setup(
-    name="twitch-dl",
+    name="twitch-dl-api",
     version="2.1.3",
     description="Twitch downloader",
     long_description=long_description.strip(),
@@ -36,7 +36,7 @@ setup(
     ],
     entry_points={
         "console_scripts": [
-            "twitch-dl=twitchdl.console:main",
+            "twitch-dl-api=twitchdl.console:main",
         ],
     }
 )
