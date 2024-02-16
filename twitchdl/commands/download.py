@@ -441,13 +441,10 @@ def _determine_time_range(
         if not chapters:
             raise ConsoleError("This video has no chapters")
 
-        if chapter == 0:
-            chapter = _choose_chapter_interactive(chapters)
-        else:
-            try:
-                chapter = chapters[chapter - 1]
-            except IndexError:
-                raise ConsoleError(f"Chapter {chapter} does not exist. This video has {len(chapters)} chapters.")
+        try:
+            chapter = chapters[chapter]
+        except IndexError:
+            raise ConsoleError(f"Chapter {chapter} does not exist. This video has {len(chapters)} chapters.")
 
         logger.info(f'Chapter selected: {chapter["description"]}\n')
         start = chapter["positionMilliseconds"] // 1000
@@ -455,13 +452,3 @@ def _determine_time_range(
         return start, start + duration
 
     return None, None
-
-
-def _choose_chapter_interactive(chapters):
-    logger.info("\nChapters:")
-    for index, chapter in enumerate(chapters):
-        duration = utils.format_time(chapter["durationMilliseconds"] // 1000)
-        logger.info(f'{index + 1}) {chapter["description"]} ({duration})')
-    index = utils.read_int("Select a chapter", 1, len(chapters))
-    chapter = chapters[index - 1]
-    return chapter
